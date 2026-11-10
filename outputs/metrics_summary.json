@@ -1,0 +1,19 @@
+{
+    "evaluation_samples": 10,
+    "model_A": {
+        "model": "MiniLM",
+        "model_id": "deepset/minilm-uncased-squad2",
+        "exact_match": 100.0,
+        "f1_score": 100.0,
+        "avg_latency_ms": 31.28,
+        "total_inference_s": 0.3128
+    },
+    "model_B": {
+        "model": "RoBERTa",
+        "model_id": "deepset/roberta-base-squad2",
+        "exact_match": 100.0,
+        "f1_score": 100.0,
+        "avg_latency_ms": 62.12,
+        "total_inference_s": 0.6212
+    }
+}

@@ -1,0 +1,11 @@
+id,question,reference_answer,predicted_answer,confidence,exact_match,f1_score,inference_time_seconds
+1,When did India gain independence?,15 August 1947,15 August 1947,0.948272168636322,1,1.0,0.06722609999997076
+2,When was MSRIT established?,1962,1962,0.9707300662994385,1,1.0,0.04514759999983653
+3,What is at the centre of our solar system?,The Sun,The Sun,0.6968574873753823,1,1.0,0.03425070000048436
+4,At what temperature does water freeze?,0 degrees Celsius,0 degrees Celsius,0.965727044356754,1,1.0,0.03593480000017735
+5,Who created Python?,Guido van Rossum,Guido van Rossum,0.9934270614612615,1,1.0,0.02648339999905147
+6,How many chambers does the human heart have?,four,four,0.8007824420928955,1,1.0,0.020276700000977144
+7,Which is the largest ocean on Earth?,The Pacific Ocean,Pacific Ocean,0.5166269540786743,1,1.0,0.021343100001104176
+8,Where is Mount Everest located?,the Himalayas,the Himalayas,0.6118050217628479,1,1.0,0.021622199999910663
+9,What is the chemical symbol for gold?,Au,Au,0.9804694056510925,1,1.0,0.02148299999862502
+10,When was the World Health Organization established?,7 April 1948,7 April 1948,0.9589219093322754,1,1.0,0.018996299999344046
