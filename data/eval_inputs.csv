@@ -1,0 +1,12 @@
+
+id,context,question,reference_answer
+1,"India gained independence on 15 August 1947. New Delhi is the capital of India.","When did India gain independence?","15 August 1947"
+2,"MS Ramaiah Institute of Technology was established in 1962. It is located in Bengaluru, Karnataka.","When was MSRIT established?","1962"
+3,"The Sun is the star at the centre of our solar system. Earth revolves around the Sun.","What is at the centre of our solar system?","The Sun"
+4,"Water freezes at 0 degrees Celsius under standard atmospheric pressure.","At what temperature does water freeze?","0 degrees Celsius"
+5,"Python was created by Guido van Rossum and was first released in 1991.","Who created Python?","Guido van Rossum"
+6,"The human heart has four chambers: two atria and two ventricles.","How many chambers does the human heart have?","four"
+7,"The Pacific Ocean is the largest ocean on Earth.","Which is the largest ocean on Earth?","The Pacific Ocean"
+8,"Mount Everest is located in the Himalayas and is the highest mountain above sea level.","Where is Mount Everest located?","the Himalayas"
+9,"The chemical symbol for gold is Au. Its atomic number is 79.","What is the chemical symbol for gold?","Au"
+10,"The World Health Organization was established on 7 April 1948.","When was the World Health Organization established?","7 April 1948"
