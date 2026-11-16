@@ -1,52 +1,110 @@
 
+import os
+import pandas as pd
 import mlflow
+from mlflow.tracking import MlflowClient
+import torch
 
-# Connect to MLflow server
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
+# ---------------- CONFIGURATION ----------------
 
-# Load the registered Champion model
-model_uri = "models:/QA_MiniLM@champion"
+TRACKING_URI = "http://127.0.0.1:5000"
 
-print("Loading Champion model...")
+REGISTERED_MODEL_NAME = "QA_Question_Answering"
+MODEL_URI = f"models:/{REGISTERED_MODEL_NAME}@champion"
 
-qa = mlflow.transformers.load_model(model_uri)
+INPUT_FILE = "data/new_data.csv"
+OUTPUT_FILE = "outputs/new_data_predictions.csv"
 
-print("Champion model loaded successfully!\n")
+DEVICE = 0 if torch.cuda.is_available() else -1
 
-# New test examples
-test_cases = [
-    {
-        "context": "The capital of France is Paris.",
-        "question": "What is the capital of France?"
-    },
-    {
-        "context": "Python was created by Guido van Rossum in 1991.",
-        "question": "Who created Python?"
-    },
-    {
-        "context": "The Earth revolves around the Sun once every 365 days.",
-        "question": "How long does Earth take to revolve around the Sun?"
-    },
-    {
-        "context": "The Pacific Ocean is the largest ocean on Earth.",
-        "question": "Which is the largest ocean?"
-    },
-    {
-        "context": "The human heart has four chambers.",
-        "question": "How many chambers does the heart have?"
-    }
-]
+# ---------------- LOAD CHAMPION DETAILS ----------------
 
-# Generate answers
-for i, item in enumerate(test_cases, start=1):
+mlflow.set_tracking_uri(TRACKING_URI)
 
-    result = qa(
-        question=item["question"],
-        context=item["context"]
+client = MlflowClient()
+
+model_version = client.get_model_version_by_alias(
+    REGISTERED_MODEL_NAME,
+    "champion"
+)
+
+version_number = model_version.version
+model_tags = model_version.tags
+
+hf_model_id = model_tags.get(
+    "hf_model_id", "Not available"
+)
+
+print("\n========== CHAMPION MODEL ==========")
+print("Registered Model:", REGISTERED_MODEL_NAME)
+print("Champion Version:", version_number)
+print("Hugging Face Model:", hf_model_id)
+
+# ---------------- LOAD NEW DATA ----------------
+
+df = pd.read_csv(INPUT_FILE, keep_default_na=False)
+
+required_columns = ["id", "context", "question"]
+
+for column in required_columns:
+    if column not in df.columns:
+        raise ValueError(f"Missing required column: {column}")
+
+if df.empty:
+    raise ValueError("new_data.csv contains no test examples.")
+
+print("\nTotal new test examples:", len(df))
+
+# ---------------- LOAD MODEL FROM MLFLOW ----------------
+
+print("\nLoading Champion model from MLflow...")
+
+model = mlflow.transformers.load_model(
+    MODEL_URI,
+    device=DEVICE
+)
+
+print("Model loaded successfully!")
+
+# ---------------- MAKE PREDICTIONS ----------------
+
+results = []
+
+for _, row in df.iterrows():
+
+    prediction = model(
+        question=row["question"],
+        context=row["context"]
     )
 
-    print(f"Test {i}")
-    print("Question:", item["question"])
-    print("Predicted Answer:", result["answer"])
-    print("Confidence:", round(result["score"], 4))
-    print("-" * 45)
+    answer = prediction.get("answer", "")
+    confidence = prediction.get("score", 0.0)
+
+    results.append({
+        "id": row["id"],
+        "question": row["question"],
+        "predicted_answer": answer,
+        "confidence": confidence,
+        "model_version": version_number,
+        "hf_model_id": hf_model_id
+    })
+
+    print("\n------------------------------")
+    print("Test:", row["id"])
+    print("Question:", row["question"])
+    print("Predicted Answer:", answer)
+    print("Confidence:", round(confidence, 3))
+
+# ---------------- SAVE RESULTS ----------------
+
+os.makedirs("outputs", exist_ok=True)
+
+results_df = pd.DataFrame(results)
+results_df.to_csv(OUTPUT_FILE, index=False)
+
+print("\n====================================")
+print("PREDICTION COMPLETED SUCCESSFULLY!")
+print("Champion Version:", version_number)
+print("Total Predictions:", len(results_df))
+print("Saved to:", OUTPUT_FILE)
+print("====================================")

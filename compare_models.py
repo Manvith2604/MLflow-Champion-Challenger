@@ -2,13 +2,23 @@
 import json
 import mlflow
 
-# Connect to MLflow
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
+# --------------------------------------------------
+# CONFIGURATION
+# --------------------------------------------------
 
-mlflow.set_experiment("QA_Champion_Challenger")
+TRACKING_URI = "http://127.0.0.1:5000"
+EXPERIMENT_NAME = "QA_Champion_Challenger"
 
+PRIMARY_METRIC = "f1_score"
+IMPROVEMENT_MARGIN = 1.0  # 1 percentage point
 
-# Load actual evaluation results
+mlflow.set_tracking_uri(TRACKING_URI)
+mlflow.set_experiment(EXPERIMENT_NAME)
+
+# --------------------------------------------------
+# LOAD EVALUATION RESULTS
+# --------------------------------------------------
+
 with open("outputs/metrics_summary.json", "r") as file:
     results = json.load(file)
 
@@ -16,93 +26,108 @@ model_a = results["model_A"]
 model_b = results["model_B"]
 
 
-# Define comparison rule
+# --------------------------------------------------
+# CHAMPION SELECTION
+# --------------------------------------------------
+
 def select_champion(a, b):
 
-    # Compare F1-score first
-    if a["f1_score"] != b["f1_score"]:
-        return a if a["f1_score"] > b["f1_score"] else b
+    f1_delta = a["f1_score"] - b["f1_score"]
 
-    # Compare Exact Match if F1 is equal
+    # Primary metric: F1 score
+    if abs(f1_delta) >= IMPROVEMENT_MARGIN:
+        return a if f1_delta > 0 else b
+
+    # Tie-breaker 1: Exact Match
     if a["exact_match"] != b["exact_match"]:
         return a if a["exact_match"] > b["exact_match"] else b
 
-    # Lower latency wins if quality is equal
+    # Tie-breaker 2: Lower latency
     return (
         a if a["avg_latency_ms"] <= b["avg_latency_ms"]
         else b
     )
 
 
-# Select winner
 champion = select_champion(model_a, model_b)
 
-# Identify challenger
 challenger = (
     model_b if champion["model"] == model_a["model"]
     else model_a
 )
 
+# Positive value means Champion has a higher F1 score
+delta_primary_metric = (
+    champion["f1_score"] - challenger["f1_score"]
+)
 
-# Display comparison
+# --------------------------------------------------
+# DISPLAY DECISION
+# --------------------------------------------------
+
 print("\n========== MODEL COMPARISON ==========")
 
-print("MiniLM F1:", model_a["f1_score"])
-print("RoBERTa F1:", model_b["f1_score"])
-
-print("MiniLM Latency:", model_a["avg_latency_ms"], "ms")
-print("RoBERTa Latency:", model_b["avg_latency_ms"], "ms")
-
+for model in [model_a, model_b]:
+    print(f"\n{model['model']}")
+    print("F1 Score:", model["f1_score"])
+    print("Exact Match:", model["exact_match"])
+    print("Average Latency:", model["avg_latency_ms"], "ms")
 
 print("\n========== FINAL DECISION ==========")
 
 print("CHAMPION:", champion["model"])
 print("CHALLENGER:", challenger["model"])
+print("Primary Metric:", PRIMARY_METRIC)
+print("Minimum Improvement Margin:", IMPROVEMENT_MARGIN)
+print("F1 Difference:", delta_primary_metric)
 
-print("Reason: Better performance based on our selection rule.")
+# --------------------------------------------------
+# CREATE DECISION REPORT
+# --------------------------------------------------
 
-
-# Prepare decision report
 decision = {
-
     "champion": champion["model"],
     "champion_model_id": champion["model_id"],
 
     "challenger": challenger["model"],
     "challenger_model_id": challenger["model_id"],
 
+    "primary_metric": PRIMARY_METRIC,
+    "metric_direction": "higher_is_better",
+    "improvement_margin": IMPROVEMENT_MARGIN,
+    "delta_primary_metric": delta_primary_metric,
+
     "selection_rule": [
-        "Highest F1-score",
-        "Highest Exact Match",
-        "Lowest average latency"
+        "F1 score is the primary metric",
+        "Minimum improvement margin is 1 percentage point",
+        "Exact Match is the first tie-breaker",
+        "Lower average latency is the final tie-breaker"
     ],
 
     "evaluation_samples": results["evaluation_samples"],
-
     "champion_metrics": champion,
     "challenger_metrics": challenger
-
 }
 
-
-# Save decision report
 with open("outputs/champion_decision.json", "w") as file:
     json.dump(decision, file, indent=4)
 
+# --------------------------------------------------
+# LOG COMPARISON TO MLFLOW
+# --------------------------------------------------
 
-# Log comparison into MLflow
 with mlflow.start_run(run_name="compare_qa"):
 
     mlflow.log_params({
-
-        "selection_method": "F1_EM_Latency",
+        "primary_metric": PRIMARY_METRIC,
+        "metric_direction": "higher_is_better",
+        "improvement_margin": IMPROVEMENT_MARGIN,
         "champion_model": champion["model"],
-        "challenger_model": challenger["model"]
-
+        "challenger_model": challenger["model"],
+        "selection_method": "F1_EM_Latency"
     })
 
     mlflow.log_metrics({
-
         "champion_f1": champion["f1_score"],
         "challenger_f1": challenger["f1_score"],
 
@@ -110,22 +135,18 @@ with mlflow.start_run(run_name="compare_qa"):
         "challenger_exact_match": challenger["exact_match"],
 
         "champion_latency_ms": champion["avg_latency_ms"],
-        "challenger_latency_ms": challenger["avg_latency_ms"]
+        "challenger_latency_ms": challenger["avg_latency_ms"],
 
+        "delta_primary_metric": delta_primary_metric
     })
 
     mlflow.set_tags({
-
-        "decision": "champion_selected",
-        "champion": champion["model"],
-        "challenger": challenger["model"]
-
+        "winner": champion["model"],
+        "challenger": challenger["model"],
+        "decision": "champion_selected"
     })
 
-    mlflow.log_artifact(
-        "outputs/champion_decision.json"
-    )
-
+    mlflow.log_artifact("outputs/champion_decision.json")
 
 print("\nDecision saved successfully!")
 print("MLflow comparison run recorded!")

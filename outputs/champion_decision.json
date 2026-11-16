@@ -1,28 +1,35 @@
 {
-    "champion": "MiniLM",
-    "champion_model_id": "deepset/minilm-uncased-squad2",
-    "challenger": "RoBERTa",
-    "challenger_model_id": "deepset/roberta-base-squad2",
+    "champion": "RoBERTa",
+    "champion_model_id": "deepset/roberta-base-squad2",
+    "challenger": "MiniLM",
+    "challenger_model_id": "deepset/minilm-uncased-squad2",
+    "primary_metric": "f1_score",
+    "metric_direction": "higher_is_better",
+    "improvement_margin": 1.0,
+    "delta_primary_metric": 2.5,
     "selection_rule": [
-        "Highest F1-score",
-        "Highest Exact Match",
-        "Lowest average latency"
+        "F1 score is the primary metric",
+        "Minimum improvement margin is 1 percentage point",
+        "Exact Match is the first tie-breaker",
+        "Lower average latency is the final tie-breaker"
     ],
-    "evaluation_samples": 10,
+    "evaluation_samples": 40,
     "champion_metrics": {
-        "model": "MiniLM",
-        "model_id": "deepset/minilm-uncased-squad2",
-        "exact_match": 100.0,
-        "f1_score": 100.0,
-        "avg_latency_ms": 31.28,
-        "total_inference_s": 0.3128
-    },
-    "challenger_metrics": {
         "model": "RoBERTa",
         "model_id": "deepset/roberta-base-squad2",
-        "exact_match": 100.0,
-        "f1_score": 100.0,
-        "avg_latency_ms": 62.12,
-        "total_inference_s": 0.6212
+        "exact_match": 87.5,
+        "f1_score": 89.17,
+        "avg_latency_ms": 13.44,
+        "total_inference_s": 0.5375,
+        "run_id": "28f2d9d753094f1f9d8a8e7b662c1325"
+    },
+    "challenger_metrics": {
+        "model": "MiniLM",
+        "model_id": "deepset/minilm-uncased-squad2",
+        "exact_match": 85.0,
+        "f1_score": 86.67,
+        "avg_latency_ms": 16.59,
+        "total_inference_s": 0.6635,
+        "run_id": "e90d6b5943bc4cee9909ce288e1a37d4"
     }
 }

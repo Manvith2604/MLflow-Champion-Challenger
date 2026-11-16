@@ -1,37 +1,91 @@
 
-import pandas as pd
-import json
-import re
-import string
-import time
 import os
+import re
+import json
+import time
+import string
+import random
+import platform
+from collections import Counter
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 import mlflow
 import transformers
 import torch
 
-from collections import Counter
 from transformers import pipeline
 
 
 # --------------------------------------------------
-# 1. CONNECT TO MLFLOW
+# 1. CONFIGURATION
 # --------------------------------------------------
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
+TRACKING_URI = "http://127.0.0.1:5000"
+EXPERIMENT_NAME = "QA_Champion_Challenger"
 
-mlflow.set_experiment("QA_Champion_Challenger")
+STUDENT_USN = "1MS25CI073"
+SEED = 42
+
+DEVICE = 0 if torch.cuda.is_available() else -1
+DEVICE_NAME = "cuda:0" if DEVICE == 0 else "cpu"
+
+DATA_PATH = "data/eval_inputs.csv"
+OUTPUT_DIR = "outputs"
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+
+mlflow.set_tracking_uri(TRACKING_URI)
+mlflow.set_experiment(EXPERIMENT_NAME)
+
+print("MLflow connected successfully!")
+print("Device:", DEVICE_NAME)
 
 
 # --------------------------------------------------
-# 2. LOAD EVALUATION DATASET
+# 2. LOAD DATASET
 # --------------------------------------------------
 
-df = pd.read_csv("data/eval_inputs.csv")
+# keep_default_na=False preserves intentionally empty answers.
+df = pd.read_csv(DATA_PATH, keep_default_na=False)
 
-os.makedirs("outputs", exist_ok=True)
+required_columns = [
+    "id",
+    "context",
+    "question",
+    "reference_answer"
+]
 
-print("Dataset loaded successfully!")
+if not all(col in df.columns for col in required_columns):
+    raise ValueError("Dataset is missing required columns.")
+
+# ID, context and question must not be empty.
+for col in ["id", "context", "question"]:
+    if df[col].astype(str).str.strip().eq("").any():
+        raise ValueError(f"Dataset contains empty values in {col}.")
+
+# Empty reference answers are allowed.
+df["reference_answer"] = (
+    df["reference_answer"].fillna("").astype(str)
+)
+
+if df["id"].duplicated().any():
+    raise ValueError("Dataset contains duplicate IDs.")
+
+print("\nDataset loaded successfully!")
 print("Total examples:", len(df))
+print(
+    "Unanswerable examples:",
+    (df["reference_answer"].str.strip() == "").sum()
+)
 
 
 # --------------------------------------------------
@@ -40,7 +94,7 @@ print("Total examples:", len(df))
 
 def normalize_text(text):
 
-    text = text.lower()
+    text = str(text).lower()
 
     text = "".join(
         char for char in text
@@ -75,8 +129,13 @@ def calculate_f1(prediction, reference):
     pred_tokens = normalize_text(prediction).split()
     ref_tokens = normalize_text(reference).split()
 
+    # Both prediction and reference are empty.
+    if not pred_tokens and not ref_tokens:
+        return 1.0
+
+    # Only one is empty.
     if not pred_tokens or not ref_tokens:
-        return float(pred_tokens == ref_tokens)
+        return 0.0
 
     common = Counter(pred_tokens) & Counter(ref_tokens)
 
@@ -94,48 +153,49 @@ def calculate_f1(prediction, reference):
 
 
 # --------------------------------------------------
-# 6. EVALUATE AND TRACK ONE MODEL
+# 6. EVALUATE ONE MODEL
 # --------------------------------------------------
 
 def evaluate_model(model_id, model_name, role, run_name):
 
     print("\nLoading model:", model_name)
 
-    # Start an MLflow run
-    with mlflow.start_run(run_name=run_name):
+    with mlflow.start_run(run_name=run_name) as run:
 
-        # Load pretrained QA model
+        run_id = run.info.run_id
+
         qa = pipeline(
             "question-answering",
             model=model_id,
-            device=-1
+            device=DEVICE
         )
 
         predictions = []
-
         total_time = 0
 
-        # Evaluate all examples
         for _, row in df.iterrows():
 
-            question = row["question"]
-            context = row["context"]
-            reference = row["reference_answer"]
+            # Synchronize GPU for accurate timing.
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
 
             start = time.perf_counter()
 
             result = qa(
-                question=question,
-                context=context
+                question=row["question"],
+                context=row["context"],
+                handle_impossible_answer=True
             )
 
-            end = time.perf_counter()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
 
-            inference_time = end - start
+            inference_time = time.perf_counter() - start
 
             total_time += inference_time
 
             prediction = result["answer"]
+            reference = row["reference_answer"]
 
             em = exact_match(prediction, reference)
 
@@ -144,28 +204,31 @@ def evaluate_model(model_id, model_name, role, run_name):
             predictions.append({
 
                 "id": row["id"],
-                "question": question,
+                "question": row["question"],
+                "context": row["context"],
                 "reference_answer": reference,
                 "predicted_answer": prediction,
-                "confidence": result["score"],
+                "confidence": float(result["score"]),
                 "exact_match": em,
                 "f1_score": f1,
-                "inference_time_seconds": inference_time
+                "inference_time_seconds": inference_time,
+                "reference_unanswerable": reference.strip() == "",
+                "prediction_unanswerable": prediction.strip() == ""
 
             })
 
-        # Convert predictions into DataFrame
         results_df = pd.DataFrame(predictions)
 
-        # Calculate evaluation metrics
         em_score = results_df["exact_match"].mean() * 100
-
         f1_score = results_df["f1_score"].mean() * 100
 
-        avg_latency = (total_time / len(df)) * 1000
+        avg_latency = (
+            total_time / len(df)
+        ) * 1000
 
-        # Save prediction file
-        output_file = f"outputs/predictions_{role}.csv"
+        output_file = (
+            f"{OUTPUT_DIR}/predictions_{role}.csv"
+        )
 
         results_df.to_csv(output_file, index=False)
 
@@ -176,13 +239,14 @@ def evaluate_model(model_id, model_name, role, run_name):
         mlflow.log_params({
 
             "model_name": model_name,
-            "model_id": model_id,
+            "hf_model_id": model_id,
             "task": "question-answering",
             "role": role,
-            "device": "CPU",
-            "evaluation_samples": len(df),
-            "transformers_version": transformers.__version__,
-            "torch_version": torch.__version__
+            "eval_samples": len(df),
+            "seed": SEED,
+            "device": DEVICE_NAME,
+            "batch_size": 1,
+            "handle_impossible_answer": True
 
         })
 
@@ -190,11 +254,21 @@ def evaluate_model(model_id, model_name, role, run_name):
         # LOG TAGS
         # ------------------------------------------
 
+        library_versions = {
+            "python": platform.python_version(),
+            "transformers": transformers.__version__,
+            "torch": torch.__version__,
+            "mlflow": mlflow.__version__,
+            "pandas": pd.__version__
+        }
+
         mlflow.set_tags({
 
-            "project": "QA_Champion_Challenger",
-            "model_family": model_name,
-            "dataset": "eval_inputs.csv"
+            "student_usn": STUDENT_USN,
+            "dataset_name": "eval_inputs.csv",
+            "library_versions": json.dumps(library_versions),
+            "model_name": model_name,
+            "project": EXPERIMENT_NAME
 
         })
 
@@ -221,22 +295,22 @@ def evaluate_model(model_id, model_name, role, run_name):
         )
 
         mlflow.log_artifact(
-            "data/eval_inputs.csv",
+            DATA_PATH,
             artifact_path="dataset"
         )
 
-        # Display results
         print("\nResults:", model_name)
-
         print("Exact Match:", round(em_score, 2), "%")
-
         print("F1 Score:", round(f1_score, 2), "%")
-
         print("Average Latency:", round(avg_latency, 2), "ms")
+        print("Total Inference Time:", round(total_time, 4), "seconds")
+        print("MLflow Run ID:", run_id)
 
-        print("Total Inference Time:", round(total_time, 2), "seconds")
+        # Release model resources.
+        del qa
 
-        print("MLflow run:", run_name)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         return {
 
@@ -245,21 +319,22 @@ def evaluate_model(model_id, model_name, role, run_name):
             "exact_match": round(em_score, 2),
             "f1_score": round(f1_score, 2),
             "avg_latency_ms": round(avg_latency, 2),
-            "total_inference_s": round(total_time, 4)
+            "total_inference_s": round(total_time, 4),
+            "run_id": run_id
 
-        }
+        }, results_df
 
 
 # --------------------------------------------------
 # 7. EVALUATE MINILM
 # --------------------------------------------------
 
-model_a = evaluate_model(
+model_a, predictions_a = evaluate_model(
 
     "deepset/minilm-uncased-squad2",
     "MiniLM",
-    "model_A",
-    "A_qa_minilm_actual"
+    "champion_candidate",
+    "A_qa_minilm"
 
 )
 
@@ -268,12 +343,12 @@ model_a = evaluate_model(
 # 8. EVALUATE ROBERTA
 # --------------------------------------------------
 
-model_b = evaluate_model(
+model_b, predictions_b = evaluate_model(
 
     "deepset/roberta-base-squad2",
     "RoBERTa",
-    "model_B",
-    "B_qa_roberta_actual"
+    "challenger_candidate",
+    "B_qa_roberta"
 
 )
 
@@ -285,28 +360,168 @@ model_b = evaluate_model(
 summary = {
 
     "evaluation_samples": len(df),
-
+    "student_usn": STUDENT_USN,
+    "seed": SEED,
+    "device": DEVICE_NAME,
     "model_A": model_a,
-
     "model_B": model_b
 
 }
 
-with open("outputs/metrics_summary.json", "w") as file:
+summary_path = f"{OUTPUT_DIR}/metrics_summary.json"
+
+with open(summary_path, "w") as file:
 
     json.dump(summary, file, indent=4)
 
 
 # --------------------------------------------------
-# 10. FINAL COMPARISON
+# 10. CREATE EVALUATION PLOTS
+# --------------------------------------------------
+
+models = ["MiniLM", "RoBERTa"]
+
+# Plot 1: EM and F1 comparison
+
+em_values = [
+    model_a["exact_match"],
+    model_b["exact_match"]
+]
+
+f1_values = [
+    model_a["f1_score"],
+    model_b["f1_score"]
+]
+
+x = np.arange(len(models))
+width = 0.35
+
+plt.figure(figsize=(8, 5))
+
+plt.bar(
+    x - width / 2,
+    em_values,
+    width,
+    label="Exact Match"
+)
+
+plt.bar(
+    x + width / 2,
+    f1_values,
+    width,
+    label="F1 Score"
+)
+
+plt.xticks(x, models)
+plt.ylabel("Score (%)")
+plt.title("Question Answering Accuracy Comparison")
+plt.ylim(0, 110)
+plt.legend()
+plt.tight_layout()
+
+accuracy_plot = f"{OUTPUT_DIR}/accuracy_comparison.png"
+
+plt.savefig(accuracy_plot)
+plt.close()
+
+
+# Plot 2: Average inference latency
+
+latency_values = [
+    model_a["avg_latency_ms"],
+    model_b["avg_latency_ms"]
+]
+
+plt.figure(figsize=(8, 5))
+
+plt.bar(models, latency_values)
+
+plt.ylabel("Average Latency (ms)")
+plt.title("Model Inference Latency Comparison")
+plt.tight_layout()
+
+latency_plot = f"{OUTPUT_DIR}/latency_comparison.png"
+
+plt.savefig(latency_plot)
+plt.close()
+
+
+# Plot 3: Confidence score distribution
+
+plt.figure(figsize=(8, 5))
+
+plt.hist(
+    predictions_a["confidence"],
+    bins=8,
+    alpha=0.6,
+    label="MiniLM"
+)
+
+plt.hist(
+    predictions_b["confidence"],
+    bins=8,
+    alpha=0.6,
+    label="RoBERTa"
+)
+
+plt.xlabel("Confidence Score")
+plt.ylabel("Number of Predictions")
+plt.title("Question Answering Confidence Distribution")
+plt.legend()
+plt.tight_layout()
+
+confidence_plot = f"{OUTPUT_DIR}/confidence_distribution.png"
+
+plt.savefig(confidence_plot)
+plt.close()
+
+
+# --------------------------------------------------
+# 11. LOG SUMMARY ARTIFACTS TO BOTH MODEL RUNS
+# --------------------------------------------------
+
+for run_id in [model_a["run_id"], model_b["run_id"]]:
+
+    with mlflow.start_run(run_id=run_id):
+
+        mlflow.log_artifact(
+            summary_path,
+            artifact_path="summary"
+        )
+
+        mlflow.log_artifact(
+            accuracy_plot,
+            artifact_path="plots"
+        )
+
+        mlflow.log_artifact(
+            latency_plot,
+            artifact_path="plots"
+        )
+
+        mlflow.log_artifact(
+            confidence_plot,
+            artifact_path="plots"
+        )
+
+
+# --------------------------------------------------
+# 12. FINAL COMPARISON
 # --------------------------------------------------
 
 print("\n===================================")
 print("FINAL MODEL COMPARISON")
 print("===================================")
 
-print(pd.DataFrame([model_a, model_b]).to_string(index=False))
+comparison_df = pd.DataFrame([
+    model_a,
+    model_b
+])
+
+print(comparison_df.to_string(index=False))
 
 print("\nEvaluation completed successfully!")
-
-print("Predictions, metrics and MLflow runs saved!")
+print("Metrics summary saved.")
+print("Three evaluation plots saved.")
+print("MLflow artifacts updated.")
+print("Evaluation device:", DEVICE_NAME)

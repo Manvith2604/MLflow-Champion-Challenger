@@ -1,0 +1,6 @@
+id,question,predicted_answer,confidence,model_version,hf_model_id
+1,How many chambers does the heart have?,four,0.747631847858429,4,deepset/roberta-base-squad2
+2,What is the capital of Japan?,Tokyo,0.9470949769020081,4,deepset/roberta-base-squad2
+3,What is the chemical symbol for oxygen?,O,0.9264549612998962,4,deepset/roberta-base-squad2
+4,On which continent is the Amazon River located?,South America,0.9728531241416931,4,deepset/roberta-base-squad2
+5,How many days does Earth take to orbit the Sun?,365,0.7694206237792969,4,deepset/roberta-base-squad2
