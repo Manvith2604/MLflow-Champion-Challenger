@@ -5,8 +5,8 @@
     "challenger_model_id": "deepset/minilm-uncased-squad2",
     "primary_metric": "f1_score",
     "metric_direction": "higher_is_better",
-    "improvement_margin": 1.0,
-    "delta_primary_metric": 2.5,
+    "margin": 1.0,
+    "delta_primary_metric": -2.5,
     "selection_rule": [
         "F1 score is the primary metric",
         "Minimum improvement margin is 1 percentage point",
