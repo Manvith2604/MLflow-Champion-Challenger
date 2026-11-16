@@ -2,5 +2,7 @@
 id,question,reference_answer,roberta_prediction,minilm_prediction,analysis
 7,"Which is the largest ocean on Earth?","Pacific Ocean","Pacific Ocean","The Pacific Ocean","Both models give the correct answer. The difference is only the use of an article."
 8,"Where is Mount Everest located?","Himalayas","the Himalayas","Himalayas","Both models provide the correct answer. The difference is only wording."
-29,"How many days after the policy introduction did the customer purchase the laptop?","40 days","10 February","30","Both models fail to calculate the date difference. This illustrates a limitation in arithmetic reasoning for extractive question-answering models."
-34,"Who manufactured the electric buses?","","","The city transport authority","RoBERTa correctly abstains because the context does not identify the manufacturer. MiniLM produces an unsupported answer."
+29,"How many days after the policy introduction did the customer purchase the laptop?","40 days","10 February","30","Both models fail to calculate the date difference. This illustrates a limitation in arithmetic reasoning."
+34,"Who manufactured the electric buses?","","","The city transport authority","RoBERTa correctly abstains because the manufacturer is not specified. MiniLM produces an unsupported answer."
+49,"Which department funded the university project?","","Science Department","Computer Science Department","Neither answer is supported by the context. The models produce different unsupported answers."
+50,"What was the final score of the match?","3-3","90 minutes","once","Both models fail to identify the final score and return unrelated text."
